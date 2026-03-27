@@ -2,9 +2,10 @@ import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
+import os
 
-# 🔑 API KEY
-API_KEY = "PASTE_YOUR_API_KEY_HERE"
+# 🔑 Secure API key
+API_KEY = os.getenv("API_KEY")
 
 st.set_page_config(page_title="Malaria Risk AI System", page_icon="🦟", layout="wide")
 
@@ -41,14 +42,18 @@ cities_data = {
 def get_weather(city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city},NG&appid={API_KEY}&units=metric"
     r = requests.get(url)
+
     if r.status_code == 200:
         d = r.json()
-        return d["main"]["temp"], d["main"]["humidity"], d.get("rain", {}).get("1h", 0)
-    return None, None, None
+        temp = d["main"]["temp"]
+        humidity = d["main"]["humidity"]
+        rain = d.get("rain", {}).get("1h", 0)
+        return temp, humidity, rain
+    else:
+        return None, None, None
 
-# ---------------- AI MODEL (simple) ----------------
+# ---------------- AI PREDICTION ----------------
 def ai_predict(temp, humidity, rain):
-    # Simple weighted prediction
     score = (temp * 0.3) + (humidity * 0.4) + (rain * 5)
 
     if score > 60:
@@ -58,84 +63,89 @@ def ai_predict(temp, humidity, rain):
     else:
         return "Low", 1
 
-# ---------------- ADVICE ----------------
+# ---------------- HEALTH ADVICE ----------------
 def advice(level):
     if level == "High":
-        return ["Use mosquito net", "Apply repellent", "Avoid stagnant water", "Seek test if fever"]
+        return [
+            "Use mosquito net",
+            "Apply insect repellent",
+            "Avoid stagnant water",
+            "Seek medical test if fever occurs"
+        ]
     elif level == "Medium":
-        return ["Sleep under net", "Keep environment clean", "Monitor symptoms"]
+        return [
+            "Sleep under mosquito net",
+            "Keep environment clean",
+            "Watch for malaria symptoms"
+        ]
     else:
-        return ["Maintain hygiene", "Stay cautious"]
+        return [
+            "Maintain good hygiene",
+            "Stay informed",
+            "Low risk but stay cautious"
+        ]
 
-# ---------------- USER SECTION ----------------
-st.subheader("📍 Check Your Location Risk")
+# ---------------- USER INPUT ----------------
+st.subheader("📍 Check Your City Risk")
 
 city = st.selectbox("Select City", list(cities_data.keys()))
 
-if st.button("Check My Risk"):
+if st.button("Check Risk"):
     temp, humidity, rain = get_weather(city)
 
-    if temp:
+    if temp is not None:
         level, val = ai_predict(temp, humidity, rain)
 
         st.markdown(f"<div class='card'>🌡 Temp: {temp} °C<br>💧 Humidity: {humidity}%<br>🌧 Rain: {rain} mm</div>", unsafe_allow_html=True)
 
         if level == "High":
-            st.markdown(f"<div class='high'>🔴 HIGH RISK</div>", unsafe_allow_html=True)
+            st.markdown("<div class='high'>🔴 HIGH RISK</div>", unsafe_allow_html=True)
         elif level == "Medium":
-            st.markdown(f"<div class='medium'>🟡 MEDIUM RISK</div>", unsafe_allow_html=True)
+            st.markdown("<div class='medium'>🟡 MEDIUM RISK</div>", unsafe_allow_html=True)
         else:
-            st.markdown(f"<div class='low'>🟢 LOW RISK</div>", unsafe_allow_html=True)
+            st.markdown("<div class='low'>🟢 LOW RISK</div>", unsafe_allow_html=True)
 
         st.subheader("💡 Health Advice")
         for tip in advice(level):
             st.write("✔️", tip)
+    else:
+        st.error("Could not fetch weather data")
 
-# ---------------- MAP DATA ----------------
+# ---------------- MAP ----------------
+st.subheader("🗺️ Nigeria Malaria Risk Map")
+
 data = []
 
 for city, coord in cities_data.items():
     temp, humidity, rain = get_weather(city)
-    if temp:
-        level, val = ai_predict(temp, humidity, rain)
 
-        color = "green"
-        if level == "High":
-            color = "red"
-        elif level == "Medium":
-            color = "orange"
+    if temp is not None:
+        level, val = ai_predict(temp, humidity, rain)
 
         data.append({
             "city": city,
             "lat": coord[0],
             "lon": coord[1],
-            "risk": level,
-            "color": color,
-            "size": val * 50
+            "risk": level
         })
 
 df = pd.DataFrame(data)
 
-# ---------------- MAP ----------------
-st.subheader("🗺️ Nigeria Malaria Risk Map")
-
 if not df.empty:
-    st.map(df.rename(columns={"lat":"latitude","lon":"longitude"}))
+    st.map(df.rename(columns={"lat": "latitude", "lon": "longitude"}))
 else:
-    st.error("No data available")
+    st.warning("No data available")
 
 # ---------------- LIVE LOCATION ----------------
-st.subheader("🌍 Use Your Current Location")
+st.subheader("🌍 Check Your Current Location")
 
-st.info("Copy your city name from Google Maps and paste below")
+user_city = st.text_input("Enter your city (e.g., Abuja)")
 
-user_city = st.text_input("Enter your current city manually")
-
-if st.button("Check Live Location Risk"):
+if st.button("Check My Location Risk"):
     temp, humidity, rain = get_weather(user_city)
 
-    if temp:
+    if temp is not None:
         level, _ = ai_predict(temp, humidity, rain)
         st.success(f"{user_city} Risk Level: {level}")
     else:
-        st.error("Could not detect location")
+        st.error("City not found")
